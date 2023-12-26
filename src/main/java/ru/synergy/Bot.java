@@ -6,9 +6,18 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.*;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.w3c.dom.stylesheets.LinkStyle;
+import ru.synergy.functions.FilterOperation;
+import ru.synergy.utils.ImageUtils;
+import ru.synergy.utils.PhotoMessageUtils;
+import ru.synergy.utils.RgbMaster;
+
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.io.File;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Bot extends TelegramLongPollingBot {
     String botToken;
@@ -25,55 +34,47 @@ public class Bot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {   // Создание новой сессии с ботом тоже является Update
+        //1. Прием сообщения
         Message message = update.getMessage();              // возвращает написанное боту сообщение
-        String responseDate = message.getDate().toString(); // время сообщения
-        User user = message.getFrom();                      // пользователь, отправивший сообщение
-        String responseId = user.getId().toString();        // id пользователя, отправившего сообщение
-        System.out.println(message.getText());              // печатает написанное боту сообщение
 
-        // Получение фотографий из сообщения
-        PhotoSize photoSize = message.getPhoto().get(0);  // получение фотографий (первой из списка) из сообщения
-        final String fileId = photoSize.getFileId();
-        try {
-            org.telegram.telegrambots.meta.api.objects.File file = sendApiMethod(new GetFile(fileId));
-            final String imageUrl = "https://api.telegram.org/file/bot" + this.botToken + "/" + file.getFilePath();
-            saveImage(imageUrl, "./src/main/java/ru/synergy/received_image.png");
-            System.out.println("image is saved");
-        } catch (TelegramApiException | IOException e) {
-            throw new RuntimeException(e);
-        }
+        //2. Сохранение присланных в сообщении фотографий,создание списка путей к сохраненным фото
+        List<String> photoPaths = PhotoMessageUtils.savePhotos(getFilesByMessage(message), this.botToken);
 
-
-        // Конструирование отправляемого фото
-        SendPhoto sendPhoto = new SendPhoto();
-        sendPhoto.setChatId(message.getChatId()); //присвоение сообщению id чата, в котором боту было отправлено сообщение
-        InputFile newFile = new InputFile();
-        newFile.setMedia(new File("./src/main/java/ru/synergy/img.png"));
-        sendPhoto.setPhoto(newFile);
-        sendPhoto.setCaption("This is sky picture"); // подпись к фото
-
-        // Конструирование отправляемого отдельного сообщения
-        SendMessage sendMessage = new SendMessage();
-        sendMessage.setChatId(message.getChatId());
-        sendMessage.setText("Your message: " + "Date: " + responseDate + ", user id: " + responseId);
-
-        try {
-            execute(sendPhoto);          // отправка фото
-            execute(sendMessage);        // отправка сообщения
-        } catch (TelegramApiException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public void saveImage(String url, String fileName) throws IOException {
-        try (InputStream inputStream = new URL(url).openStream();
-             OutputStream outputStream = new FileOutputStream(fileName)) {
-            byte[] b = new byte[2048];  // будем записывать патчами по 2Кбайт
-            int length;
-            while ((length = inputStream.read(b)) != -1) { // пока имеются данные для считывания
-                outputStream.write(b, 0, length);
+        //3. Обработка полученных фотографий и отправка пользователю
+        for (String path : photoPaths) {
+            PhotoMessageUtils.processingImage(path);
+            // Конструирование отправляемого фото для отправки
+            SendPhoto sendPhoto = preparePhotoMessage(path, message.getChatId());
+            // Отправка ответного сообщения пользователю
+            try {
+                execute(sendPhoto);
+            } catch (TelegramApiException e) {
+                throw new RuntimeException(e);
             }
         }
     }
 
+    private SendPhoto preparePhotoMessage(String localPath, Long chatId) {
+        SendPhoto sendPhoto = new SendPhoto();
+        sendPhoto.setChatId(chatId); //присвоение сообщению id чата, в котором боту было отправлено сообщение
+        InputFile newFile = new InputFile();
+        newFile.setMedia(new File(localPath));
+        sendPhoto.setPhoto(newFile);
+//        sendPhoto.setCaption("edited image"); // подпись к фото
+        return sendPhoto;
+    }
+
+    private List<org.telegram.telegrambots.meta.api.objects.File> getFilesByMessage(Message message) {
+        List<PhotoSize> photoSizes = message.getPhoto();  // получение фотографий (первой из списка) из сообщения
+        List<org.telegram.telegrambots.meta.api.objects.File> files = new ArrayList<>();
+        for (PhotoSize photoSize : photoSizes) {
+            final String fileId = photoSize.getFileId();
+            try {
+                files.add(sendApiMethod(new GetFile(fileId)));
+            } catch (TelegramApiException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return files;
+    }
 }
