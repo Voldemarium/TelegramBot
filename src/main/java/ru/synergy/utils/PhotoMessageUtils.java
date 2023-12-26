@@ -1,8 +1,8 @@
 package ru.synergy.utils;
 
 import org.telegram.telegrambots.meta.api.objects.File;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.synergy.functions.FilterOperation;
+import ru.synergy.functions.ImageOperation;
 
 import java.awt.image.BufferedImage;
 import java.io.FileOutputStream;
@@ -43,19 +43,20 @@ public class PhotoMessageUtils {
         }
     }
 
-    public static void processingImage(String fileName) { // Обработка полученной фотографии
+    public static void processingImage(String fileName, String filter) { // Обработка полученной фотографии
         try {
             final BufferedImage image =  ImageUtils.getImage(fileName);
             final RgbMaster rgbMaster = new RgbMaster(image);
             ImageUtils imageUtilsJpg = new ImageUtils("png");
-            imageUtilsJpg.saveImage(rgbMaster.changeImage(FilterOperation::onlyRed),
-                    fileName);
-//            imageUtilsJpg.saveImage(rgbMaster.changeImage(FilterOperation::greyScale),
-//                    fileName);
-//            imageUtilsJpg.saveImage(rgbMaster.changeImage(FilterOperation::onlyRed), "./src/newPhoto2.png");
-//            imageUtilsJpg.saveImage(rgbMaster.changeImage(FilterOperation::onlyGrey), "./src/newPhoto3.png");
-//            imageUtilsJpg.saveImage(rgbMaster.changeImage(FilterOperation::onlyBlue), "./src/newPhoto4.png);
-//            imageUtilsJpg.saveImage(rgbMaster.changeImage(FilterOperation::sepia), "./src/newPhoto5.png");
+            ImageOperation operation = null;
+            switch (filter) {
+                case "grey scale" : operation = FilterOperation::greyScale;break;
+                case "red" : operation = FilterOperation::onlyRed;break;
+                case "grey" : operation = FilterOperation::onlyGrey;break;
+                case "blue" : operation = FilterOperation::onlyBlue;break;
+                case "sepia" : operation = FilterOperation::sepia;break;
+            }
+            imageUtilsJpg.saveImage(rgbMaster.changeImage(operation), fileName);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
