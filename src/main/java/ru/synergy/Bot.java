@@ -5,10 +5,15 @@ import org.telegram.telegrambots.meta.api.methods.GetFile;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.*;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import ru.synergy.functions.FilterOperation;
 import ru.synergy.utils.PhotoMessageUtils;
 
 import java.io.File;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,7 +58,7 @@ public class Bot extends TelegramLongPollingBot {
                     try {
                         execute(sendPhoto); // Отправка ответного сообщения пользователю c отредактированным фото
                     } catch (TelegramApiException e) {
-                        throw new RuntimeException(e);
+                        e.printStackTrace();
                     }
                 }
             } else {
@@ -71,17 +76,17 @@ public class Bot extends TelegramLongPollingBot {
         try {
             execute(sendMessage);
         } catch (TelegramApiException e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
     }
 
     private SendPhoto preparePhotoMessage(String localPath, Long chatId) {
         SendPhoto sendPhoto = new SendPhoto();
+        sendPhoto.setReplyMarkup(getKeyboard(FilterOperation.class)); //создание и настройка кнопок и добавление в сообщение
         sendPhoto.setChatId(chatId); //присвоение сообщению id чата, в котором боту было отправлено сообщение
         InputFile newFile = new InputFile();
         newFile.setMedia(new File(localPath));
         sendPhoto.setPhoto(newFile);
-//        sendPhoto.setCaption("edited image"); // подпись к фото
         return sendPhoto;
     }
 
@@ -99,9 +104,34 @@ public class Bot extends TelegramLongPollingBot {
                 }
                 files.add(file);
             } catch (TelegramApiException e) {
-                throw new RuntimeException(e);
+                e.printStackTrace();
             }
         }
         return files;
+    }
+
+    private ReplyKeyboardMarkup getKeyboard(Class<?> someClass) {
+        ReplyKeyboardMarkup replyKeyboardMarkup = new ReplyKeyboardMarkup(); //создаем объект клавиатуры
+        ArrayList<KeyboardRow> keyboardRows = new ArrayList<>();     // создаем список - ряды кнопок
+
+        Method[] methods = someClass.getMethods();
+        int columnCount = 3;   // зададим кол-во колонок в клавиатуре
+        // находим число строк, округляя в большую сторону результат от деления (число методов / число колонок)
+        int rowsCount =  (int) Math.ceil((double) methods.length / columnCount);
+        int indexButton = 0;
+        for (int rowIndex = 0; rowIndex < rowsCount; rowIndex++) {
+            KeyboardRow keyboardButtons = new KeyboardRow();
+            for (int columnIndex = 0; columnIndex < columnCount && indexButton < methods.length; columnIndex++) {
+                //добавим кнопки в ряды кнопок клавиатуры
+                Method method = methods[indexButton];
+                KeyboardButton button = new KeyboardButton(method.getName());
+                keyboardButtons.add(button);
+                indexButton++;
+            }
+            keyboardRows.add(keyboardButtons);
+        }
+        replyKeyboardMarkup.setKeyboard(keyboardRows);
+        replyKeyboardMarkup.setOneTimeKeyboard(true); // клавиатура будет показываться только для одного сообщения
+        return replyKeyboardMarkup;
     }
 }
