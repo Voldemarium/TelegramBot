@@ -13,8 +13,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Bot extends TelegramLongPollingBot {
-    String botToken;
+    final String botToken;
     List<String> photoPaths;
+    String extension;
     final String[] filterNames = {"grey scale", "red", "grey", "blue", "sepia"};
 
     public Bot(String botToken) {
@@ -35,16 +36,18 @@ public class Bot extends TelegramLongPollingBot {
 
         if (message.hasPhoto()) {
             //Сохранение присланных в сообщении фотографий, создание списка путей к сохраненным фото
-            this.photoPaths = PhotoMessageUtils.savePhotos(getFilesByMessage(message), this.botToken);
+            this.photoPaths = PhotoMessageUtils.savePhotos(getFilesByMessage(message), this.botToken, this.extension);
             // Отправка ответного сообщения пользователю c текстом команд для выбора фильтра
-            sendText(chatId, getTextFilterNames(filterNames));
+            sendText(chatId, PhotoMessageUtils.getTextFilterNames(filterNames));
+        } else if (photoPaths == null) {
+            sendText(chatId, "your message is incorrect, send photos");
         } else if (message.hasText() && !this.photoPaths.isEmpty()) {
             String text = message.getText();
-            boolean correctFilter = isCorrectFilter(text);
+            boolean correctFilter = PhotoMessageUtils.isCorrectFilter(text, filterNames);
             if (correctFilter) {
                 // Обработка полученных фотографий и отправка пользователю
                 for (String path : this.photoPaths) {
-                    PhotoMessageUtils.processingImage(path, text);
+                    PhotoMessageUtils.processingImage(path, text.toLowerCase(), this.extension);
                     // Конструирование отправляемого фото для отправки
                     SendPhoto sendPhoto = preparePhotoMessage(path, message.getChatId());
                     try {
@@ -53,10 +56,9 @@ public class Bot extends TelegramLongPollingBot {
                         throw new RuntimeException(e);
                     }
                 }
+            } else {
+                sendText(chatId, "your filter name is incorrect");
             }
-
-        } else if (message.hasText() && this.photoPaths.isEmpty()) {
-            sendText(chatId, "send photos");
         } else {
             sendText(chatId, "your message is invalid");
         }
@@ -73,28 +75,6 @@ public class Bot extends TelegramLongPollingBot {
         }
     }
 
-    private String getTextFilterNames(String[] filterNames) {
-        String text;
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("Change filter:\n");
-        for (String filter : filterNames) {
-            stringBuilder.append(filter).append("\n");
-        }
-        text = stringBuilder.toString();
-        return text;
-    }
-
-    private boolean isCorrectFilter(String text) {
-        boolean correctFilter = false;
-        for (String filter : filterNames) {
-            if (text.equals(filter)) {
-                correctFilter = true;
-                break;
-            }
-        }
-        return correctFilter;
-    }
-
     private SendPhoto preparePhotoMessage(String localPath, Long chatId) {
         SendPhoto sendPhoto = new SendPhoto();
         sendPhoto.setChatId(chatId); //присвоение сообщению id чата, в котором боту было отправлено сообщение
@@ -106,12 +86,18 @@ public class Bot extends TelegramLongPollingBot {
     }
 
     private List<org.telegram.telegrambots.meta.api.objects.File> getFilesByMessage(Message message) {
+        this.extension = null;  //обнуление расширения файла
         List<PhotoSize> photoSizes = message.getPhoto();  // получение фотографий (первой из списка) из сообщения
         List<org.telegram.telegrambots.meta.api.objects.File> files = new ArrayList<>();
         for (PhotoSize photoSize : photoSizes) {
             final String fileId = photoSize.getFileId();
             try {
-                files.add(sendApiMethod(new GetFile(fileId)));
+                org.telegram.telegrambots.meta.api.objects.File file = sendApiMethod(new GetFile(fileId));
+                String path = file.getFilePath();
+                if (extension == null) {
+                    this.extension = path.substring(path.indexOf('.') + 1); //присвоение расширения файла
+                }
+                files.add(file);
             } catch (TelegramApiException e) {
                 throw new RuntimeException(e);
             }

@@ -16,20 +16,21 @@ import java.util.List;
 import java.util.Random;
 
 public class PhotoMessageUtils {
-    public static List<String> savePhotos (List<File> files, String botToken) {
+    public static List<String> savePhotos(List<File> files, String botToken, String extension) {
         Random random = new Random();
         ArrayList<String> paths = new ArrayList<>();
         for (File file : files) {
             try {
                 final String imageUrl = "https://api.telegram.org/file/bot" + botToken + "/" + file.getFilePath();
-                final String localFileName = "./src/main/java/ru/synergy/images/" + new Date().getTime() + random.nextLong() + ".png";
+                final String localFileName = "./src/main/java/ru/synergy/images/"
+                        + new Date().getTime() + random.nextLong() + "." + extension;
                 saveImage(imageUrl, localFileName);
                 paths.add(localFileName);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         }
-      return paths;
+        return paths;
     }
 
     public static void saveImage(String url, String fileName) throws IOException {
@@ -43,22 +44,54 @@ public class PhotoMessageUtils {
         }
     }
 
-    public static void processingImage(String fileName, String filter) { // Обработка полученной фотографии
+    public static void processingImage(String fileName, String filter, String extension) { // Обработка полученной фотографии
         try {
-            final BufferedImage image =  ImageUtils.getImage(fileName);
+            final BufferedImage image = ImageUtils.getImage(fileName);
             final RgbMaster rgbMaster = new RgbMaster(image);
-            ImageUtils imageUtilsJpg = new ImageUtils("png");
+            ImageUtils imageUtilsJpg = new ImageUtils(extension);
             ImageOperation operation = null;
             switch (filter) {
-                case "grey scale" : operation = FilterOperation::greyScale;break;
-                case "red" : operation = FilterOperation::onlyRed;break;
-                case "grey" : operation = FilterOperation::onlyGrey;break;
-                case "blue" : operation = FilterOperation::onlyBlue;break;
-                case "sepia" : operation = FilterOperation::sepia;break;
+                case "grey scale":
+                    operation = FilterOperation::greyScale;
+                    break;
+                case "red":
+                    operation = FilterOperation::onlyRed;
+                    break;
+                case "grey":
+                    operation = FilterOperation::onlyGrey;
+                    break;
+                case "blue":
+                    operation = FilterOperation::onlyBlue;
+                    break;
+                case "sepia":
+                    operation = FilterOperation::sepia;
+                    break;
             }
             imageUtilsJpg.saveImage(rgbMaster.changeImage(operation), fileName);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static String getTextFilterNames(String[] filterNames) {
+        String text;
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("Change filter:\n");
+        for (String filter : filterNames) {
+            stringBuilder.append(filter).append("\n");
+        }
+        text = stringBuilder.toString();
+        return text;
+    }
+
+    public static boolean isCorrectFilter(String text, String[] filterNames) {
+        boolean correctFilter = false;
+        for (String filter : filterNames) {
+            if (text.equalsIgnoreCase(filter)) {
+                correctFilter = true;
+                break;
+            }
+        }
+        return correctFilter;
     }
 }
