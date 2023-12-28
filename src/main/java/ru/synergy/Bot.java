@@ -2,26 +2,27 @@ package ru.synergy;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
+import org.telegram.telegrambots.meta.api.methods.send.SendMediaGroup;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.*;
+import org.telegram.telegrambots.meta.api.objects.media.InputMedia;
+import org.telegram.telegrambots.meta.api.objects.media.InputMediaPhoto;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import ru.synergy.commands.AppBotCommand;
+import ru.synergy.commands.BotCommonCommands;
 import ru.synergy.functions.FilterOperation;
+import ru.synergy.functions.ImageOperation;
 import ru.synergy.utils.PhotoMessageUtils;
-
-import java.io.File;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
 public class Bot extends TelegramLongPollingBot {
     final String botToken;
-    List<String> photoPaths;
-    String extension;
-    final String[] filterNames = {"grey scale", "red", "grey", "blue", "sepia"};
 
     public Bot(String botToken) {
         super(botToken);
@@ -37,71 +38,92 @@ public class Bot extends TelegramLongPollingBot {
     public void onUpdateReceived(Update update) {
         //1. Прием сообщения
         Message message = update.getMessage();              // возвращает написанное боту сообщение
-        Long chatId = message.getChatId();
 
+        // Для текстовой команды
+        if (message.hasText()) {
+            try {
+                SendMessage responseTextMessage = runCommonCommand(message);
+                if (responseTextMessage != null) {   // Если была корректная текстовая команда
+                    execute(responseTextMessage);    // отправляем ответное сообщение
+                    return;                          // завершаем цикл
+                }
+            } catch (InvocationTargetException | IllegalAccessException | TelegramApiException e) {
+                e.printStackTrace();
+            }
+        }
+
+        // Для присланных фото
         if (message.hasPhoto()) {
-            //Сохранение присланных в сообщении фотографий, создание списка путей к сохраненным фото
-            this.photoPaths = PhotoMessageUtils.savePhotos(getFilesByMessage(message), this.botToken, this.extension);
-            // Отправка ответного сообщения пользователю c текстом команд для выбора фильтра
-            sendText(chatId, PhotoMessageUtils.getTextFilterNames(filterNames));
-        } else if (photoPaths == null) {
-            sendText(chatId, "your message is incorrect, send photos");
-        } else if (message.hasText() && !this.photoPaths.isEmpty()) {
-            String text = message.getText();
-            boolean correctFilter = PhotoMessageUtils.isCorrectFilter(text, filterNames);
-            if (correctFilter) {
-                // Обработка полученных фотографий и отправка пользователю
-                for (String path : this.photoPaths) {
-                    PhotoMessageUtils.processingImage(path, text.toLowerCase(), this.extension);
-                    // Конструирование отправляемого фото для отправки
-                    SendPhoto sendPhoto = preparePhotoMessage(path, message.getChatId());
-                    try {
-                        execute(sendPhoto); // Отправка ответного сообщения пользователю c отредактированным фото
-                    } catch (TelegramApiException e) {
-                        e.printStackTrace();
+            try {
+                SendMediaGroup responseMediaMessage = runPhotoFilter(message);
+                if (responseMediaMessage != null) {
+                    execute(responseMediaMessage);    // отправляем ответное сообщение
+                    return;                           // завершаем цикл )
+                }
+            } catch (TelegramApiException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private SendMessage runCommonCommand(Message message) throws InvocationTargetException, IllegalAccessException {
+        String text = message.getText();
+        BotCommonCommands botCommonCommands = new BotCommonCommands();
+        Method[] methods = botCommonCommands.getClass().getDeclaredMethods();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(AppBotCommand.class)) {  // из методов, помеченных аннотациями @AppBotCommand
+                AppBotCommand command = method.getAnnotation(AppBotCommand.class); // достаем их реализацию аннотации
+                if (command.name().equals(text)) {
+                    method.setAccessible(true);  // даем доступ к методу
+                    String responseText = (String) method.invoke(botCommonCommands);
+                    if (responseText != null) {
+                        SendMessage sendMessage = new SendMessage();
+                        sendMessage.setChatId(message.getChatId());
+                        sendMessage.setText(responseText);
+                        return sendMessage;
                     }
                 }
-            } else {
-                sendText(chatId, "your filter name is incorrect");
             }
-        } else {
-            sendText(chatId, "your message is invalid");
         }
+        return null;
     }
 
-    private void sendText(Long chatId, String text) {
-        SendMessage sendMessage = new SendMessage();
-        sendMessage.setChatId(chatId);
-        sendMessage.setText(text);
+    private SendMediaGroup runPhotoFilter(Message message) {
+        ImageOperation operation = FilterOperation::greyScale;
+        //Сохранение присланных в сообщении фотографий, создание списка путей к сохраненным фото
         try {
-            execute(sendMessage);
-        } catch (TelegramApiException e) {
+            List<String> photoPaths = PhotoMessageUtils.savePhotos(getFilesByMessage(message), this.botToken);
+            Long chatId = message.getChatId();
+            // Обработка полученных фотографий
+            return preparePhotoMessage(photoPaths, operation, chatId); // объект для отправки нескольких медиафайлов
+        } catch (Exception e) {
             e.printStackTrace();
         }
+        return null;
     }
 
-    private SendPhoto preparePhotoMessage(String localPath, Long chatId) {
-        SendPhoto sendPhoto = new SendPhoto();
-        sendPhoto.setReplyMarkup(getKeyboard(FilterOperation.class)); //создание и настройка кнопок и добавление в сообщение
-        sendPhoto.setChatId(chatId); //присвоение сообщению id чата, в котором боту было отправлено сообщение
-        InputFile newFile = new InputFile();
-        newFile.setMedia(new File(localPath));
-        sendPhoto.setPhoto(newFile);
-        return sendPhoto;
+    private SendMediaGroup preparePhotoMessage(List<String> localPaths, ImageOperation operation, Long chatId) throws Exception {
+        SendMediaGroup mediaGroup = new SendMediaGroup();    // объект для отправки нескольких медиафайлов
+        ArrayList<InputMedia> medias = new ArrayList<>();
+        for (String path : localPaths) {
+            InputMedia inputMedia = new InputMediaPhoto(); // объект для вложения в него фото
+            PhotoMessageUtils.processingImage(path, operation);
+            inputMedia.setMedia(new java.io.File(path), path); // вложение одного фото
+            medias.add(inputMedia);
+        }
+        mediaGroup.setMedias(medias);
+        mediaGroup.setChatId(chatId);
+        return mediaGroup;
     }
 
-    private List<org.telegram.telegrambots.meta.api.objects.File> getFilesByMessage(Message message) {
-        this.extension = null;  //обнуление расширения файла
+    private List<File> getFilesByMessage(Message message) {
         List<PhotoSize> photoSizes = message.getPhoto();  // получение фотографий (первой из списка) из сообщения
-        List<org.telegram.telegrambots.meta.api.objects.File> files = new ArrayList<>();
+        List<File> files = new ArrayList<>();
         for (PhotoSize photoSize : photoSizes) {
             final String fileId = photoSize.getFileId();
             try {
-                org.telegram.telegrambots.meta.api.objects.File file = sendApiMethod(new GetFile(fileId));
+                File file = sendApiMethod(new GetFile(fileId));
                 String path = file.getFilePath();
-                if (extension == null) {
-                    this.extension = path.substring(path.indexOf('.') + 1); //присвоение расширения файла
-                }
                 files.add(file);
             } catch (TelegramApiException e) {
                 e.printStackTrace();
@@ -110,28 +132,42 @@ public class Bot extends TelegramLongPollingBot {
         return files;
     }
 
-    private ReplyKeyboardMarkup getKeyboard(Class<?> someClass) {
+    private ReplyKeyboardMarkup getKeyboard() {
         ReplyKeyboardMarkup replyKeyboardMarkup = new ReplyKeyboardMarkup(); //создаем объект клавиатуры
-        ArrayList<KeyboardRow> keyboardRows = new ArrayList<>();     // создаем список - ряды кнопок
+        ArrayList<KeyboardRow> allKeyboardRows = new ArrayList<>();     // создаем список - ряды кнопок
+        allKeyboardRows.addAll(getKeyboardRows(BotCommonCommands.class));
+        allKeyboardRows.addAll(getKeyboardRows(FilterOperation.class));
 
-        Method[] methods = someClass.getMethods();
+        replyKeyboardMarkup.setKeyboard(allKeyboardRows);
+        replyKeyboardMarkup.setOneTimeKeyboard(true); // клавиатура будет показываться только для одного сообщения
+        return replyKeyboardMarkup;
+    }
+
+    private ArrayList<KeyboardRow> getKeyboardRows(Class<?> someClass) {
+        Method[] methods = someClass.getDeclaredMethods();
+        ArrayList<AppBotCommand> commands = new ArrayList<>();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(AppBotCommand.class)) {  // из методов, помеченных аннотациями @AppBotCommand
+                AppBotCommand command = method.getAnnotation(AppBotCommand.class); // достаем их реализацию аннотации
+                commands.add(command);                                             // и добавляем ее в список commands
+            }
+        }
+        ArrayList<KeyboardRow> keyboardRows = new ArrayList<>();     // создаем список - ряды кнопок
         int columnCount = 3;   // зададим кол-во колонок в клавиатуре
         // находим число строк, округляя в большую сторону результат от деления (число методов / число колонок)
-        int rowsCount =  (int) Math.ceil((double) methods.length / columnCount);
+        int rowsCount = (int) Math.ceil((double) commands.size() / columnCount);
         int indexButton = 0;
         for (int rowIndex = 0; rowIndex < rowsCount; rowIndex++) {
             KeyboardRow keyboardButtons = new KeyboardRow();
-            for (int columnIndex = 0; columnIndex < columnCount && indexButton < methods.length; columnIndex++) {
+            for (int columnIndex = 0; columnIndex < columnCount && indexButton < commands.size(); columnIndex++) {
                 //добавим кнопки в ряды кнопок клавиатуры
-                Method method = methods[indexButton];
-                KeyboardButton button = new KeyboardButton(method.getName());
+                AppBotCommand command = commands.get(indexButton);
+                KeyboardButton button = new KeyboardButton(command.name());
                 keyboardButtons.add(button);
                 indexButton++;
             }
             keyboardRows.add(keyboardButtons);
         }
-        replyKeyboardMarkup.setKeyboard(keyboardRows);
-        replyKeyboardMarkup.setOneTimeKeyboard(true); // клавиатура будет показываться только для одного сообщения
-        return replyKeyboardMarkup;
+        return keyboardRows;
     }
 }
