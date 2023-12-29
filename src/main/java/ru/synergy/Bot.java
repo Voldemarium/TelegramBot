@@ -15,6 +15,7 @@ import ru.synergy.commands.AppBotCommand;
 import ru.synergy.commands.BotCommonCommands;
 import ru.synergy.functions.FilterOperation;
 import ru.synergy.functions.ImageOperation;
+import ru.synergy.utils.ImageUtils;
 import ru.synergy.utils.PhotoMessageUtils;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -89,7 +90,10 @@ public class Bot extends TelegramLongPollingBot {
     }
 
     private SendMediaGroup runPhotoFilter(Message message) {
-        ImageOperation operation = FilterOperation::greyScale;
+        ImageOperation operation = ImageUtils.getOperation(message.getCaption());
+        if (operation == null) {
+            return null;
+        }
         //Сохранение присланных в сообщении фотографий, создание списка путей к сохраненным фото
         try {
             List<String> photoPaths = PhotoMessageUtils.savePhotos(getFilesByMessage(message), this.botToken);
