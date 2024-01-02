@@ -6,9 +6,6 @@ import org.telegram.telegrambots.meta.generics.BotSession;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import ru.synergy.utils.PhotoMessageUtils;
 
-import java.io.File;
-import java.util.Objects;
-
 public class Main {
     public static void main(String[] args) throws TelegramApiException {
         //Создание кнопок по названиям методов класса FilterOperation - см. метод getKeyboard() в классе Bot
