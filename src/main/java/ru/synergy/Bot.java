@@ -17,19 +17,30 @@ import ru.synergy.functions.FilterOperation;
 import ru.synergy.functions.ImageOperation;
 import ru.synergy.utils.ImageUtils;
 import ru.synergy.utils.PhotoMessageUtils;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 
 public class Bot extends TelegramLongPollingBot {
     final String botToken;
-    HashMap<Long, Message> messages = new HashMap<>(); // для храгения предыдущих сообщений
+    Set<User> users = new LinkedHashSet<>();                //список пользователей
+    HashMap<Long, Message> messages = new HashMap<>();       // для хранения предыдущих сообщений
+    List <BotEventListener> eventListeners = new ArrayList<>(); //  список слушателей
 
     public Bot(String botToken) {
         super(botToken);
         this.botToken = botToken;
+    }
+
+    public void addEventListener(BotEventListener listener) {
+        this.eventListeners.add(listener);
+    }
+
+    public void notifyEventListeners(BotEvent event) {
+        for(BotEventListener listener : this.eventListeners) {
+            listener.processEvent(event);
+        }
     }
 
     @Override
@@ -41,6 +52,8 @@ public class Bot extends TelegramLongPollingBot {
     public void onUpdateReceived(Update update) {
         //1. Прием сообщения
         Message message = update.getMessage();              // возвращает написанное боту сообщение
+        this.users.add(message.getFrom());                       //добавляем в список пользователей
+        this.notifyEventListeners(new BotEvent(this));  //передаем событие слушателю
 
         // Для текстовой команды
         if (message.hasText()) {
@@ -53,11 +66,11 @@ public class Bot extends TelegramLongPollingBot {
                 if (!messages.isEmpty()) {           // если есть сохраненные фото из предыдущего сообщения
                     SendMediaGroup responseMediaMessage = runPhotoFilter(message);
                     if (responseMediaMessage != null) {
-                            execute(responseMediaMessage);  //отправляем ответное сообщение с фото с наложенным фильтром
-                            return;                         //завершаем цикл
+                        execute(responseMediaMessage);  //отправляем ответное сообщение с фото с наложенным фильтром
+                        return;                         //завершаем цикл
                     }
                 } else {
-                    execute(getSendTextMessage(message.getChatId(),"send photo to use filter"));
+                    execute(getSendTextMessage(message.getChatId(), "send photo to use filter"));
                     return;                                   // завершаем цикл
                 }
             } catch (InvocationTargetException | IllegalAccessException | TelegramApiException e) {
@@ -100,7 +113,7 @@ public class Bot extends TelegramLongPollingBot {
 
     private SendMessage runPhotoMessage(Message message) {
         List<File> files = getFilesByMessage(message);
-        if(files.isEmpty()) {
+        if (files.isEmpty()) {
             return null;
         }
         this.messages.put(message.getChatId(), message);   //Сохраняем сообщение
@@ -121,7 +134,7 @@ public class Bot extends TelegramLongPollingBot {
         }
         Long chatId = newMessage.getChatId();
         Message photoMessage = messages.get(chatId); //извлекаем предыдущее сообщение с фото
-        if(photoMessage != null) {
+        if (photoMessage != null) {
             //Сохранение присланных в сообщении фотографий, создание списка путей к сохраненным фото
             try {
                 List<String> photoPaths = PhotoMessageUtils.savePhotos(getFilesByMessage(photoMessage), this.botToken);
@@ -157,7 +170,7 @@ public class Bot extends TelegramLongPollingBot {
 
     private List<File> getFilesByMessage(Message message) {
         List<PhotoSize> photoSizes = message.getPhoto();  // получение фотографий из сообщения
-        if(photoSizes == null) {
+        if (photoSizes == null) {
             return new ArrayList<>();
         }
         List<File> files = new ArrayList<>();
